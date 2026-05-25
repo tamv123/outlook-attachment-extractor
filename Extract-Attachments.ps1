@@ -1,0 +1,410 @@
+<#
+.SYNOPSIS
+  Extract large attachments from Outlook to a local folder (e.g. OneDrive),
+  preserving email-attachment links.
+
+.DESCRIPTION
+  Scans Outlook folders for emails with large attachments, saves them to a
+  configurable output directory organized by file-type category and date,
+  creates an index CSV mapping, inserts a reference link into the email body,
+  and optionally removes the attachment from the email to free mailbox space.
+
+  Requires:
+    - Windows 10/11 with Microsoft Outlook desktop app (classic, not "New Outlook")
+    - PowerShell 5.1+
+
+.PARAMETER Folder
+  Outlook folder to scan: inbox, sent, drafts, all, or a custom folder name.
+  Default: inbox
+
+.PARAMETER MinSizeMB
+  Minimum attachment size in MB to extract. Default: 1
+
+.PARAMETER MaxItems
+  Maximum number of emails to process per run, to prevent timeouts. Default: 100
+
+.PARAMETER OlderThanDays
+  Only process emails older than N days. Default: 90
+
+.PARAMETER DryRun
+  Preview mode — list what would be extracted without making any changes. Default: true
+  ALWAYS do a dry run first before extracting.
+
+.PARAMETER RemoveAfterExtract
+  Remove attachment from the email after saving to disk. This frees mailbox/server
+  space but is PERMANENT — the attachment cannot be recovered from the email.
+  Default: false
+
+.PARAMETER OutputPath
+  Base directory for extracted attachments. Defaults to your OneDrive Downloads folder.
+  Falls back to ~/Downloads if OneDrive is not configured.
+
+.EXAMPLE
+  # Preview large attachments in Inbox (safe — no changes made)
+  .\Extract-Attachments.ps1 -DryRun $true
+
+.EXAMPLE
+  # Extract attachments > 5MB from Inbox, older than 180 days
+  .\Extract-Attachments.ps1 -MinSizeMB 5 -OlderThanDays 180 -DryRun $false
+
+.EXAMPLE
+  # Extract from Sent Items folder
+  .\Extract-Attachments.ps1 -Folder sent -DryRun $false
+
+.EXAMPLE
+  # Extract AND remove attachments to free mailbox space
+  .\Extract-Attachments.ps1 -DryRun $false -RemoveAfterExtract $true
+
+.EXAMPLE
+  # Extract to a custom output directory
+  .\Extract-Attachments.ps1 -DryRun $false -OutputPath "D:\EmailBackups"
+
+.EXAMPLE
+  # Scan all folders (Inbox + Sent Items)
+  .\Extract-Attachments.ps1 -Folder all -DryRun $true
+#>
+
+param(
+    [string]$Folder = "inbox",
+    [double]$MinSizeMB = 1,
+    [int]$MaxItems = 100,
+    [int]$OlderThanDays = 90,
+    [bool]$DryRun = $true,
+    [bool]$RemoveAfterExtract = $false,
+    [string]$OutputPath = ""
+)
+
+$ErrorActionPreference = "Continue"
+
+# === Determine output directory ===
+if ($OutputPath -eq "") {
+    # Try OneDrive paths (common enterprise and personal patterns)
+    $oneDrivePaths = @(
+        $env:OneDriveCommercial,
+        $env:OneDrive,
+        "$env:USERPROFILE\OneDrive"
+    )
+    # Also check for OneDrive folders with org names
+    $oneDriveFolders = Get-ChildItem "$env:USERPROFILE" -Directory -Filter "OneDrive*" -ErrorAction SilentlyContinue
+    foreach ($od in $oneDriveFolders) {
+        $oneDrivePaths += $od.FullName
+    }
+
+    $OutputPath = ""
+    foreach ($p in $oneDrivePaths) {
+        if ($p -and (Test-Path $p)) {
+            $OutputPath = Join-Path $p "Downloads"
+            break
+        }
+    }
+    if ($OutputPath -eq "") {
+        $OutputPath = Join-Path $env:USERPROFILE "Downloads"
+    }
+}
+
+$indexFile = Join-Path $OutputPath "Email Attachments\_attachment_index.csv"
+
+Write-Host "Output directory: $OutputPath" -ForegroundColor Cyan
+Write-Host ""
+
+# === File extension to category mapping ===
+$categoryMap = @{
+    # Work documents
+    '.pptx' = 'Work'; '.ppt' = 'Work'; '.docx' = 'Work'; '.doc' = 'Work'
+    '.pdf'  = 'Work'; '.msg' = 'Work'; '.eml' = 'Work'; '.rtf' = 'Work'
+    '.one'  = 'Work'; '.vsdx' = 'Work'; '.vsd' = 'Work'
+    # Data & Analytics
+    '.xlsx' = 'Analytics & Data'; '.xls' = 'Analytics & Data'; '.csv' = 'Analytics & Data'
+    '.json' = 'Analytics & Data'; '.xml' = 'Analytics & Data'; '.parquet' = 'Analytics & Data'
+    '.accdb' = 'Analytics & Data'; '.mdb' = 'Analytics & Data'
+    # Media
+    '.png'  = 'Media'; '.jpg' = 'Media'; '.jpeg' = 'Media'; '.gif' = 'Media'
+    '.bmp'  = 'Media'; '.svg' = 'Media'; '.mp4' = 'Media'; '.mp3' = 'Media'
+    '.mov'  = 'Media'; '.avi' = 'Media'; '.wmv' = 'Media'; '.wav' = 'Media'
+    '.tiff' = 'Media'; '.tif' = 'Media'; '.webp' = 'Media'
+    # Installers & Tools
+    '.zip'  = 'Installers & Tools'; '.rar' = 'Installers & Tools'; '.7z' = 'Installers & Tools'
+    '.msi'  = 'Installers & Tools'; '.exe' = 'Installers & Tools'; '.iso' = 'Installers & Tools'
+    '.tar'  = 'Installers & Tools'; '.gz' = 'Installers & Tools'
+}
+
+function Get-FileCategory($filename) {
+    $ext = [IO.Path]::GetExtension($filename).ToLower()
+    if ($categoryMap.ContainsKey($ext)) {
+        return $categoryMap[$ext]
+    }
+    return 'Work'  # default category
+}
+
+# === Connect to Outlook (with retry) ===
+$maxRetries = 3
+$outlook = $null
+for ($r = 1; $r -le $maxRetries; $r++) {
+    try {
+        $outlook = New-Object -ComObject Outlook.Application
+        $ns = $outlook.GetNamespace("MAPI")
+        $null = $ns.GetDefaultFolder(6)  # test connection
+        Write-Host "Connected to Outlook" -ForegroundColor Green
+        break
+    } catch {
+        Write-Host "Attempt $r/$maxRetries - COM error: $($_.Exception.Message)" -ForegroundColor Yellow
+        if ($r -lt $maxRetries) {
+            Start-Sleep -Seconds (5 * $r)
+        } else {
+            Write-Host ""
+            Write-Host "ERROR: Cannot connect to Outlook after $maxRetries attempts." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "Troubleshooting:" -ForegroundColor Yellow
+            Write-Host "  1. Make sure Outlook desktop app (classic) is running"
+            Write-Host "  2. 'New Outlook' is NOT supported — switch to classic Outlook"
+            Write-Host "  3. Try closing and reopening Outlook, then run this script again"
+            Write-Host "  4. Run: Get-Process OUTLOOK  (should show a running process)"
+            exit 1
+        }
+    }
+}
+
+# === Get target folder ===
+function Get-OutlookFolder($folderName) {
+    switch ($folderName.ToLower()) {
+        "inbox"  { return $ns.GetDefaultFolder(6) }
+        "sent"   { return $ns.GetDefaultFolder(5) }
+        "drafts" { return $ns.GetDefaultFolder(16) }
+        default {
+            $root = $ns.GetDefaultFolder(6).Store.GetRootFolder()
+            foreach ($f in $root.Folders) {
+                if ($f.Name -eq $folderName) { return $f }
+            }
+            Write-Host "ERROR: Folder '$folderName' not found." -ForegroundColor Red
+            Write-Host "Available top-level folders:" -ForegroundColor Yellow
+            foreach ($f in $root.Folders) {
+                Write-Host "  - $($f.Name)"
+            }
+            exit 1
+        }
+    }
+}
+
+if ($Folder -eq "all") {
+    $folders = @(
+        @{ Name = "Inbox"; Obj = $ns.GetDefaultFolder(6) },
+        @{ Name = "Sent Items"; Obj = $ns.GetDefaultFolder(5) }
+    )
+} else {
+    $targetFolder = Get-OutlookFolder $Folder
+    $folders = @(@{ Name = $Folder; Obj = $targetFolder })
+}
+
+# === Ensure output directories exist ===
+if (-not $DryRun) {
+    $emailAttBase = Join-Path $OutputPath "Email Attachments"
+    if (-not (Test-Path $emailAttBase)) {
+        New-Item -ItemType Directory -Path $emailAttBase -Force | Out-Null
+    }
+    if (-not (Test-Path $indexFile)) {
+        "EmailEntryID,Subject,Sender,ReceivedDate,Folder,AttachmentName,OriginalSizeMB,SavedPath,Category,ExtractedDate" | Out-File -FilePath $indexFile -Encoding UTF8
+    }
+}
+
+# === Helper: Sanitize filename ===
+function Sanitize-Filename($name) {
+    $invalid = [IO.Path]::GetInvalidFileNameChars() -join ''
+    $sanitized = $name -replace "[$([regex]::Escape($invalid))]", '_'
+    if ($sanitized.Length -gt 80) {
+        $ext = [IO.Path]::GetExtension($sanitized)
+        $sanitized = $sanitized.Substring(0, 76) + $ext
+    }
+    return $sanitized
+}
+
+# === Helper: Get short sender name ===
+function Get-ShortSender($senderName) {
+    $parts = $senderName -split '[,\s]+'
+    if ($parts.Count -ge 2) {
+        return ($parts[0] + "_" + $parts[1]).Substring(0, [Math]::Min(20, ($parts[0] + "_" + $parts[1]).Length))
+    }
+    return $senderName.Substring(0, [Math]::Min(20, $senderName.Length))
+}
+
+# === Main Processing ===
+$cutoffDate = (Get-Date).AddDays(-$OlderThanDays)
+$totalExtracted = 0
+$totalSizeMB = 0
+$totalEmails = 0
+$results = @()
+
+foreach ($folderInfo in $folders) {
+    $currentFolder = $folderInfo.Obj
+    $folderName = $folderInfo.Name
+    Write-Host "`n=== Processing: $folderName ===" -ForegroundColor Cyan
+
+    $items = $currentFolder.Items
+    $items.Sort("[ReceivedTime]", $false)  # oldest first
+
+    $dateFilter = $cutoffDate.ToString("MM/dd/yyyy")
+    $filtered = $items.Restrict("[ReceivedTime] < '$dateFilter'")
+
+    $itemCount = $filtered.Count
+    Write-Host "Items older than $OlderThanDays days: $itemCount"
+
+    $processed = 0
+    $item = $filtered.GetFirst()
+
+    while ($item -ne $null -and $processed -lt $MaxItems) {
+        try {
+            if ($item.Attachments.Count -gt 0) {
+                $hasLargeAttachment = $false
+                $savedPaths = @()
+
+                for ($a = 1; $a -le $item.Attachments.Count; $a++) {
+                    $att = $item.Attachments.Item($a)
+                    $sizeMB = [Math]::Round($att.Size / 1MB, 2)
+
+                    # Skip inline images (OLE type 6) and small attachments
+                    if ($sizeMB -ge $MinSizeMB -and $att.Type -ne 6) {
+                        $hasLargeAttachment = $true
+                        $totalExtracted++
+                        $totalSizeMB += $sizeMB
+
+                        $yearMonth = $item.ReceivedTime.ToString("yyyy-MM")
+                        $shortSender = Get-ShortSender $item.SenderName
+                        $safeFilename = Sanitize-Filename $att.FileName
+                        $saveName = "{0}_{1}_{2}" -f $item.ReceivedTime.ToString("yyyy-MM-dd"), $shortSender, $safeFilename
+                        $category = Get-FileCategory $att.FileName
+                        $saveDir = Join-Path $OutputPath (Join-Path $category (Join-Path "Email Attachments" $yearMonth))
+                        $savePath = Join-Path $saveDir $saveName
+
+                        $result = [PSCustomObject]@{
+                            Folder     = $folderName
+                            Date       = $item.ReceivedTime.ToString("yyyy-MM-dd")
+                            Sender     = $item.SenderName
+                            Subject    = $item.Subject.Substring(0, [Math]::Min(60, $item.Subject.Length))
+                            Attachment = $att.FileName
+                            SizeMB     = $sizeMB
+                            Category   = $category
+                            SavePath   = $savePath
+                        }
+                        $results += $result
+
+                        if ($DryRun) {
+                            Write-Host ("  [{0}] {1,7:N1} MB  {2,-30} | {3}" -f `
+                                $item.ReceivedTime.ToString("yyyy-MM-dd"), $sizeMB, `
+                                $att.FileName.Substring(0, [Math]::Min(30, $att.FileName.Length)), `
+                                $item.Subject.Substring(0, [Math]::Min(50, $item.Subject.Length)))
+                        } else {
+                            if (-not (Test-Path $saveDir)) {
+                                New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
+                            }
+
+                            $att.SaveAsFile($savePath)
+                            Write-Host ("  SAVED: {0} ({1:N1} MB) -> {2}" -f $safeFilename, $sizeMB, $category) -ForegroundColor Green
+
+                            # Append to index CSV
+                            $csvLine = '"{0}","{1}","{2}","{3}","{4}","{5}",{6},"{7}","{8}","{9}"' -f `
+                                $item.EntryID, `
+                                ($item.Subject -replace '"','""'), `
+                                ($item.SenderName -replace '"','""'), `
+                                $item.ReceivedTime.ToString("yyyy-MM-dd HH:mm"), `
+                                $folderName, `
+                                ($att.FileName -replace '"','""'), `
+                                $sizeMB, `
+                                ($savePath -replace '"','""'), `
+                                $category, `
+                                (Get-Date).ToString("yyyy-MM-dd HH:mm")
+                            $csvLine | Out-File -FilePath $indexFile -Encoding UTF8 -Append
+
+                            $savedPaths += $savePath
+                        }
+                    }
+                }
+
+                if ($hasLargeAttachment -and -not $DryRun) {
+                    # Insert file paths as links at the top of the email body
+                    if ($savedPaths.Count -gt 0) {
+                        if ($item.BodyFormat -eq 2) {
+                            # HTML format
+                            $htmlBlock = "<div style='background:#f0f7ff;border:1px solid #b3d4fc;padding:8px 12px;margin-bottom:10px;font-family:Calibri,sans-serif;font-size:11px;'>"
+                            $htmlBlock += "<b>&#128206; Attachment extracted to:</b><br>"
+                            foreach ($sp in $savedPaths) {
+                                $fileUri = "file:///" + ($sp -replace '\\', '/')
+                                $htmlBlock += "<a href=`"$fileUri`">$sp</a><br>"
+                            }
+                            $htmlBlock += "</div>"
+
+                            if ($item.HTMLBody -match '<body[^>]*>') {
+                                $item.HTMLBody = $item.HTMLBody -replace '(<body[^>]*>)', "`$1$htmlBlock"
+                            } else {
+                                $item.HTMLBody = $htmlBlock + $item.HTMLBody
+                            }
+                        } else {
+                            # Plain text
+                            $pathLines = "Attachment extracted to:`n"
+                            foreach ($sp in $savedPaths) {
+                                $pathLines += "  $sp`n"
+                            }
+                            $item.Body = $pathLines + "`n" + $item.Body
+                        }
+                    }
+
+                    # Remove attachments if requested (iterate in reverse to avoid index shift)
+                    if ($RemoveAfterExtract) {
+                        for ($a = $item.Attachments.Count; $a -ge 1; $a--) {
+                            $att = $item.Attachments.Item($a)
+                            $sizeMB = [Math]::Round($att.Size / 1MB, 2)
+                            if ($sizeMB -ge $MinSizeMB -and $att.Type -ne 6) {
+                                $attName = $att.FileName
+                                $att.Delete()
+                                Write-Host "    REMOVED from email: $attName" -ForegroundColor Yellow
+                            }
+                        }
+                    }
+
+                    $item.Save()
+                }
+
+                if ($hasLargeAttachment) { $totalEmails++ }
+            }
+        } catch {
+            Write-Host "  ERROR processing item: $($_.Exception.Message)" -ForegroundColor Red
+        }
+
+        $processed++
+        $item = $filtered.GetNext()
+    }
+}
+
+# === Summary ===
+Write-Host ""
+Write-Host "=============================" -ForegroundColor Cyan
+if ($DryRun) {
+    Write-Host "  DRY RUN SUMMARY (no changes made)" -ForegroundColor Yellow
+} else {
+    Write-Host "  EXTRACTION COMPLETE" -ForegroundColor Green
+}
+Write-Host "=============================" -ForegroundColor Cyan
+Write-Host "Emails with large attachments: $totalEmails"
+Write-Host "Attachments found:             $totalExtracted"
+Write-Host ("Total size:                    {0:N1} MB ({1:N2} GB)" -f $totalSizeMB, ($totalSizeMB / 1024))
+Write-Host ""
+if (-not $DryRun) {
+    Write-Host "Saved to:  $OutputPath" -ForegroundColor Green
+    Write-Host "Index CSV: $indexFile" -ForegroundColor Green
+    if ($RemoveAfterExtract) {
+        Write-Host ""
+        Write-Host "WARNING: Attachments were REMOVED from emails (permanent)." -ForegroundColor Yellow
+    } else {
+        Write-Host ""
+        Write-Host "Attachments are still in emails. To free mailbox space, re-run with:" -ForegroundColor Cyan
+        Write-Host "  .\Extract-Attachments.ps1 -DryRun `$false -RemoveAfterExtract `$true"
+    }
+} else {
+    Write-Host ""
+    Write-Host "To extract these attachments, re-run with:" -ForegroundColor Cyan
+    Write-Host "  .\Extract-Attachments.ps1 -DryRun `$false"
+}
+
+# === Output results table for large runs ===
+if ($results.Count -gt 0 -and $results.Count -le 50) {
+    Write-Host ""
+    $results | Format-Table -Property Date, @{L='Size(MB)';E={$_.SizeMB};F='N1'}, Category, Attachment, @{L='Subject';E={$_.Subject}} -AutoSize
+}

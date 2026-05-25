@@ -1,0 +1,16 @@
+# Index CSV (contains email metadata — user-specific)
+_attachment_index.csv
+
+# Extracted attachments
+Email Attachments/
+
+# PowerShell temp files
+*.tmp
+*.bak
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
