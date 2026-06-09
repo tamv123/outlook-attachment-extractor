@@ -13,6 +13,33 @@ Let's collaborate and make this tool awesome!
 
 Extract large attachments from your Outlook mailbox to a local folder (e.g. OneDrive), organized by file type and date. Free up mailbox space without losing access to your files.
 
+## Why You Need This
+
+> **It's 4:55 PM. You hit "Send" on the proposal your client needs before end of day.**
+> Instead of a *whoosh*, you get a red error: **"Your mailbox is full. You can't send messages."**
+> Now you're frantically deleting emails — hoping you don't trash something you'll need — while the deadline ticks past.
+
+Sound familiar? Here's the trap almost every Outlook user falls into:
+
+- **A full mailbox doesn't just slow you down — it shuts you down.** Once you hit your storage quota, Outlook **stops sending *and* receiving email entirely.** You're locked out at the worst possible moment, and there's no grace period.
+- **Attachments are the silent storage hog.** Years of 10–30 MB decks, spreadsheets, PDFs and screenshots quietly eat 80%+ of a typical mailbox. A handful of big threads can consume gigabytes.
+- **The usual "fix" is painful and risky.** Manually hunting for large emails and deleting them is slow, stressful, and one wrong click means a lost contract, receipt, or approval you can never get back.
+
+**This tool breaks the trap — without you losing a thing.**
+
+It finds your largest, oldest attachments, **moves the actual files out to OneDrive/Downloads** (where storage is cheap and plentiful), and **leaves a clickable link right in the original email** pointing to the saved file. The email, the conversation, and the context all stay exactly where they were — only the heavy payload moves.
+
+| | Before | After |
+|---|---|---|
+| **Mailbox size** | 🔴 49.8 / 50 GB — sending blocked | 🟢 12 GB — room to breathe |
+| **Your 2023 contract PDF** | Buried in a full mailbox | One click away, linked in the same email |
+| **Finding old files** | Scroll, search, pray | Open the email → click the link, or check the index CSV |
+| **Risk of losing something** | High (manual delete) | None — files are copied out *before* anything is removed |
+
+The result: you reclaim **double-digit gigabytes** in minutes, your inbox keeps flowing, and **the user experience is unchanged** — every attachment is still reachable from the very email it arrived in. No more "mailbox full" surprises, no more deadline-day panic, no data loss.
+
+> 💡 Think of it as moving boxes out of a cramped office into a spacious warehouse — and taping a "find it here" note where each box used to sit.
+
 ## What It Does
 
 ```
