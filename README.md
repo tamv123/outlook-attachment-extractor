@@ -1,3 +1,12 @@
+🚀 Work in Progress
+This repository is a work in progress, and I am actively looking for feedback and contributors to help refine it!
+
+If you see something that can be optimized, a bug that needs squashing, or want to co-develop a feature, please feel free to:
+
+Open an Issue to discuss your ideas.
+Submit a Pull Request with your improvements.
+Let's collaborate and make this tool awesome!
+
 # Outlook Attachment Extractor
 
 > **⚠️ Windows Only** — Requires Windows 10/11 with Microsoft Outlook desktop app (classic).
