@@ -315,6 +315,25 @@ If you're on New Outlook, you can switch back via the toggle in the top-right co
 - **Shared mailboxes** — may not work with read-only shared folders
 - **No undo for removal** — once `-RemoveAfterExtract $true` is used and the email is saved, the attachment is permanently removed from the Exchange server
 
+## Developer Note — avoid `GetItemFromID` for bulk operations
+
+This script deliberately walks each folder's `Items` collection rather than
+looking emails up by EntryID. **Keep it that way.**
+
+`namespace.GetItemFromID($entryId)` triggers a **server fetch** whenever the item
+isn't in the local cache, or whenever the EntryID is **stale** — Outlook
+regenerates an item's EntryID after the item is edited, saved, or moved. That
+fetch can **block indefinitely** with no built-in timeout. (On WSL it's worse:
+`timeout` only kills the `/init` interop wrapper, leaving the Windows
+`powershell.exe` alive and still holding the Outlook COM connection, which then
+blocks the next invocation too.)
+
+Iterating `$folder.Items` stays within the local cache and cannot hang this way,
+so any future feature that needs to revisit specific emails (e.g. re-linking or
+post-processing) should match within a folder walk — optionally bounded with
+`$items.Restrict("[ReceivedTime] >= '...'")` — instead of calling
+`GetItemFromID` in a loop.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
