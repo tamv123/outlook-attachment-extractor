@@ -27,12 +27,12 @@
   Only process emails older than N days. Default: 90
 
 .PARAMETER DryRun
-  Preview mode — list what would be extracted without making any changes. Default: true
+  Preview mode - list what would be extracted without making any changes. Default: true
   ALWAYS do a dry run first before extracting.
 
 .PARAMETER RemoveAfterExtract
   Remove attachment from the email after saving to disk. This frees mailbox/server
-  space but is PERMANENT — the attachment cannot be recovered from the email.
+  space but is PERMANENT - the attachment cannot be recovered from the email.
   Default: false
 
 .PARAMETER OutputPath
@@ -40,7 +40,7 @@
   Falls back to ~/Downloads if OneDrive is not configured.
 
 .EXAMPLE
-  # Preview large attachments in Inbox (safe — no changes made)
+  # Preview large attachments in Inbox (safe - no changes made)
   .\Extract-Attachments.ps1 -DryRun $true
 
 .EXAMPLE
@@ -71,7 +71,9 @@ param(
     [int]$OlderThanDays = 90,
     [bool]$DryRun = $true,
     [bool]$RemoveAfterExtract = $false,
-    [string]$OutputPath = ""
+    [string]$OutputPath = "",
+    [string]$SharePointWebRoot = "",
+    [string]$OneDriveLocalRoot = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -105,7 +107,44 @@ if ($OutputPath -eq "") {
 $indexFile = Join-Path $OutputPath "Email Attachments\_attachment_index.csv"
 
 Write-Host "Output directory: $OutputPath" -ForegroundColor Cyan
+
+# === Determine SharePoint web link base (for "Open in browser" links) ===
+# Auto-detect from the OneDrive Business registry so the tenant URL is always
+# correct and survives tenant renames. Both values can be overridden via params.
+if ($SharePointWebRoot -eq "" -or $OneDriveLocalRoot -eq "") {
+    $odAccounts = Get-ChildItem 'HKCU:\Software\Microsoft\OneDrive\Accounts' -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSChildName -like 'Business*' }
+    foreach ($acct in $odAccounts) {
+        $props = Get-ItemProperty $acct.PSPath -ErrorAction SilentlyContinue
+        if (-not $props) { continue }
+        if ($OneDriveLocalRoot -eq "" -and $props.UserFolder -and (Test-Path $props.UserFolder)) {
+            # Only adopt this account if our OutputPath lives under its synced folder
+            if ($OutputPath.StartsWith($props.UserFolder, [StringComparison]::OrdinalIgnoreCase)) {
+                $OneDriveLocalRoot = $props.UserFolder
+                if ($SharePointWebRoot -eq "" -and $props.ServiceEndpointUri) {
+                    $SharePointWebRoot = ($props.ServiceEndpointUri -replace '/_api$', '') + '/Documents'
+                }
+            }
+        }
+    }
+}
+
+if ($SharePointWebRoot -ne "" -and $OneDriveLocalRoot -ne "") {
+    Write-Host "Web links via: $SharePointWebRoot" -ForegroundColor Cyan
+} else {
+    Write-Host "Web links: (none - output is not under a OneDrive-synced folder)" -ForegroundColor DarkGray
+}
 Write-Host ""
+
+# Convert a local OneDrive path to its SharePoint web URL (URL-encoded). Returns
+# $null when the path is outside the synced root or no web root is configured.
+function Get-OneDriveWebUrl($localPath) {
+    if ($SharePointWebRoot -eq "" -or $OneDriveLocalRoot -eq "") { return $null }
+    if (-not $localPath.StartsWith($OneDriveLocalRoot, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+    $relative = $localPath.Substring($OneDriveLocalRoot.Length)
+    $segments = $relative -split '\\' | ForEach-Object { [Uri]::EscapeDataString($_) }
+    return $SharePointWebRoot + ($segments -join '/')
+}
 
 # === File extension to category mapping ===
 $categoryMap = @{
@@ -156,7 +195,7 @@ for ($r = 1; $r -le $maxRetries; $r++) {
             Write-Host ""
             Write-Host "Troubleshooting:" -ForegroundColor Yellow
             Write-Host "  1. Make sure Outlook desktop app (classic) is running"
-            Write-Host "  2. 'New Outlook' is NOT supported — switch to classic Outlook"
+            Write-Host "  2. 'New Outlook' is NOT supported - switch to classic Outlook"
             Write-Host "  3. Try closing and reopening Outlook, then run this script again"
             Write-Host "  4. Run: Get-Process OUTLOOK  (should show a running process)"
             exit 1
@@ -332,7 +371,16 @@ foreach ($folderInfo in $folders) {
                             $htmlBlock += "<b>&#128206; Attachment extracted to:</b><br>"
                             foreach ($sp in $savedPaths) {
                                 $fileUri = "file:///" + (($sp -replace '\\', '/') -replace ' ', '%20')
-                                $htmlBlock += "<a href=`"$fileUri`">$sp</a><br>"
+                                $fileName = [IO.Path]::GetFileName($sp)
+                                $webUrl = Get-OneDriveWebUrl $sp
+                                $htmlBlock += "<a href=`"$fileUri`">&#128193; $fileName</a>"
+                                if ($webUrl) {
+                                    $htmlBlock += " &nbsp;|&nbsp; <a href=`"$webUrl`">&#127760; Open in browser</a>"
+                                }
+                                $htmlBlock += "<br>"
+                            }
+                            if (Get-OneDriveWebUrl $savedPaths[0]) {
+                                $htmlBlock += "<span style='color:#888;font-size:10px;'>&#128193; = local (this PC) &nbsp; &#127760; = OneDrive web (mobile / forwarding)</span>"
                             }
                             $htmlBlock += "</div>"
 
@@ -349,7 +397,9 @@ foreach ($folderInfo in $folders) {
                             # Plain text
                             $pathLines = "Attachment extracted to:`n"
                             foreach ($sp in $savedPaths) {
-                                $pathLines += "  $sp`n"
+                                $pathLines += "  Local: $sp`n"
+                                $webUrl = Get-OneDriveWebUrl $sp
+                                if ($webUrl) { $pathLines += "  Web:   $webUrl`n" }
                             }
                             try {
                                 $item.Body = $pathLines + "`n" + $item.Body

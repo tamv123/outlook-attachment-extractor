@@ -86,7 +86,45 @@ Outlook Mailbox                          Your OneDrive / Downloads
 
 2. **That's it.** No dependencies to install — it's a single PowerShell script.
 
-## Quick Start
+## Easiest: double-click `Run-Extractor.bat`
+
+If you'd rather not touch PowerShell, just **double-click `Run-Extractor.bat`**.
+It launches an interactive menu — no install, no admin, no execution-policy
+changes — that runs against your own Outlook and your own OneDrive:
+
+```
+==================== Outlook Attachment Extractor ====================
+ Save path    : C:\Users\you\OneDrive\Downloads
+ Email folder : inbox
+ SharePoint   : https://contoso-my.sharepoint.com/personal/you_contoso_com/Documents
+ Filters      : >= 1 MB | older than 90 days | max 100/run
+ Estimate     : 142 emails match (older-than filter); up to 100 will be scanned
+----------------------------------------------------------------------
+ 1) Change save path
+ 2) Change email folder
+ 3) Change SharePoint web link base ('Open in browser' links)
+ 4) Change filters (size / age / max)
+ 5) Preview (dry run - exact attachment list, no changes)
+ 6) TEST: extract just ONE email (keeps it in the email)
+ 7) Extract ALL (save to disk, keep attachments in email)
+ 8) Extract ALL and REMOVE from email (frees mailbox - permanent)
+ 9) Quit
+======================================================================
+```
+
+- **Save path** and **email folder** are validated before anything runs (it
+  creates the folder if needed and confirms the folder exists in Outlook).
+- It shows an **estimate of how many emails** match your filters before you commit.
+- Option **6** lets you **extract a single email as a test** before processing
+  everything.
+- **SharePoint web base** is auto-detected from your OneDrive sign-in and powers
+  the "Open in browser" link added to each email; you can override or disable it.
+
+Keep `Run-Extractor.bat`, `Run-Extractor.ps1`, and `Extract-Attachments.ps1`
+together in the same folder. To share with someone, send them the whole folder
+(or the repo ZIP) — they double-click the `.bat` and it just works.
+
+## Quick Start (PowerShell)
 
 ### Step 1: Preview (Dry Run) — Always do this first
 
@@ -127,6 +165,8 @@ Outlook Mailbox                          Your OneDrive / Downloads
 | `-DryRun` | `$true` | Preview mode — no files saved, no emails modified |
 | `-RemoveAfterExtract` | `$false` | Remove attachment from email after saving to disk (**permanent!**) |
 | `-OutputPath` | *(auto-detected)* | Output directory. Auto-detects OneDrive, falls back to `~/Downloads` |
+| `-SharePointWebRoot` | *(auto-detected)* | SharePoint base URL for the "Open in browser" web link added to each email (e.g. `https://contoso-my.sharepoint.com/personal/you_contoso_com/Documents`). Auto-detected from your OneDrive sign-in; leave blank to insert local links only. |
+| `-OneDriveLocalRoot` | *(auto-detected)* | Local OneDrive synced folder that maps to `-SharePointWebRoot`. Only files saved under this root get a web link. |
 
 ### Examples
 
@@ -228,12 +268,19 @@ The index is **append-only** — safe to run the script multiple times without d
 
 ### What happens to the email?
 
-After extraction, a blue info box is inserted at the top of the email body:
+After extraction, a blue info box is inserted at the top of the email body with
+two links per attachment:
 
 > 📎 **Attachment extracted to:**
-> `C:\Users\you\OneDrive\Downloads\Work\Email Attachments\2025-03\2025-03-15_Report.pptx`
+> 📁 [2025-03-15_Report.pptx](#) &nbsp;|&nbsp; 🌐 [Open in browser](#)
+> 📁 = local (this PC) &nbsp; 🌐 = OneDrive web (mobile / forwarding)
 
-The original email text is preserved. If you click the link, the file opens directly.
+The original email text is preserved.
+- **📁 local link** (`file:///…`) opens the file directly on the PC where it was saved.
+- **🌐 Open in browser** opens it from OneDrive/SharePoint — works on mobile and when
+  forwarding to others. This link only appears when the save path is inside a
+  OneDrive-synced folder (so a SharePoint URL can be derived); otherwise only the
+  local link is added.
 
 ## Recommended Workflow
 
@@ -267,6 +314,17 @@ Run monthly to keep your mailbox lean:
 ```
 
 ## Changelog
+
+### v1.2.0
+- **New: `Run-Extractor.bat` + `Run-Extractor.ps1`** — double-click interactive
+  menu. Validates the save path and Outlook folder, estimates how many emails
+  match before running, and offers a single-email test run.
+- **New: "Open in browser" web links.** Each email now gets an optional OneDrive/
+  SharePoint web link alongside the local link, via the new `-SharePointWebRoot`
+  and `-OneDriveLocalRoot` parameters (auto-detected from your OneDrive sign-in).
+- **Fix: script now parses on PowerShell 5.1 without a BOM.** Replaced non-ASCII
+  em-dashes (which Windows PowerShell misread as ANSI, corrupting string parsing)
+  with ASCII hyphens.
 
 ### v1.1.0
 - **Fix:** `-OlderThanDays 0` now correctly processes all emails including those received today. Previously, same-day emails were always excluded due to a midnight-boundary comparison.
