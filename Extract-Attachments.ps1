@@ -241,11 +241,16 @@ foreach ($folderInfo in $folders) {
     $items = $currentFolder.Items
     $items.Sort("[ReceivedTime]", $false)  # oldest first
 
-    $dateFilter = $cutoffDate.ToString("MM/dd/yyyy")
-    $filtered = $items.Restrict("[ReceivedTime] < '$dateFilter'")
-
-    $itemCount = $filtered.Count
-    Write-Host "Items older than $OlderThanDays days: $itemCount"
+    if ($OlderThanDays -le 0) {
+        $filtered = $items
+        $itemCount = $items.Count
+        Write-Host "All items (no date filter): $itemCount"
+    } else {
+        $dateFilter = $cutoffDate.ToString("MM/dd/yyyy")
+        $filtered = $items.Restrict("[ReceivedTime] < '$dateFilter'")
+        $itemCount = $filtered.Count
+        Write-Host "Items older than $OlderThanDays days: $itemCount"
+    }
 
     $processed = 0
     $item = $filtered.GetFirst()
@@ -326,15 +331,19 @@ foreach ($folderInfo in $folders) {
                             $htmlBlock = "<div style='background:#f0f7ff;border:1px solid #b3d4fc;padding:8px 12px;margin-bottom:10px;font-family:Calibri,sans-serif;font-size:11px;'>"
                             $htmlBlock += "<b>&#128206; Attachment extracted to:</b><br>"
                             foreach ($sp in $savedPaths) {
-                                $fileUri = "file:///" + ($sp -replace '\\', '/')
+                                $fileUri = "file:///" + (($sp -replace '\\', '/') -replace ' ', '%20')
                                 $htmlBlock += "<a href=`"$fileUri`">$sp</a><br>"
                             }
                             $htmlBlock += "</div>"
 
-                            if ($item.HTMLBody -match '<body[^>]*>') {
-                                $item.HTMLBody = $item.HTMLBody -replace '(<body[^>]*>)', "`$1$htmlBlock"
-                            } else {
-                                $item.HTMLBody = $htmlBlock + $item.HTMLBody
+                            try {
+                                if ($item.HTMLBody -match '<body[^>]*>') {
+                                    $item.HTMLBody = $item.HTMLBody -replace '(<body[^>]*>)', "`$1$htmlBlock"
+                                } else {
+                                    $item.HTMLBody = $htmlBlock + $item.HTMLBody
+                                }
+                            } catch {
+                                Write-Host "  WARNING: Could not insert link into email body: $($_.Exception.Message)" -ForegroundColor Yellow
                             }
                         } else {
                             # Plain text
@@ -342,7 +351,11 @@ foreach ($folderInfo in $folders) {
                             foreach ($sp in $savedPaths) {
                                 $pathLines += "  $sp`n"
                             }
-                            $item.Body = $pathLines + "`n" + $item.Body
+                            try {
+                                $item.Body = $pathLines + "`n" + $item.Body
+                            } catch {
+                                Write-Host "  WARNING: Could not insert link into email body: $($_.Exception.Message)" -ForegroundColor Yellow
+                            }
                         }
                     }
 

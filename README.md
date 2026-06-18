@@ -123,7 +123,7 @@ Outlook Mailbox                          Your OneDrive / Downloads
 | `-Folder` | `inbox` | Outlook folder: `inbox`, `sent`, `drafts`, `all`, or any custom folder name |
 | `-MinSizeMB` | `1` | Minimum attachment size in MB to extract |
 | `-MaxItems` | `100` | Max emails to process per run (prevents timeouts) |
-| `-OlderThanDays` | `90` | Only process emails older than N days |
+| `-OlderThanDays` | `90` | Only process emails older than N days. Use `0` to process all emails regardless of age (including today's). |
 | `-DryRun` | `$true` | Preview mode — no files saved, no emails modified |
 | `-RemoveAfterExtract` | `$false` | Remove attachment from email after saving to disk (**permanent!**) |
 | `-OutputPath` | *(auto-detected)* | Output directory. Auto-detects OneDrive, falls back to `~/Downloads` |
@@ -265,6 +265,13 @@ Run monthly to keep your mailbox lean:
 ```powershell
 .\Extract-Attachments.ps1 -OlderThanDays 30 -DryRun $false
 ```
+
+## Changelog
+
+### v1.1.0
+- **Fix:** `-OlderThanDays 0` now correctly processes all emails including those received today. Previously, same-day emails were always excluded due to a midnight-boundary comparison.
+- **Fix:** `file:///` links in the email body now correctly URL-encode spaces in the path (e.g. `OneDrive%20-%20Procter%20and%20Gamble`), making them clickable in Outlook.
+- **Fix:** Inserting the extraction link into non-standard email item types (e.g. meeting requests, IRM-protected messages) no longer aborts the whole item — a warning is shown and the file is still saved.
 
 ## Troubleshooting
 
