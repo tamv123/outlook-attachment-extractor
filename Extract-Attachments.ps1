@@ -73,8 +73,12 @@ param(
     [bool]$RemoveAfterExtract = $false,
     [string]$OutputPath = "",
     [string]$SharePointWebRoot = "",
-    [string]$OneDriveLocalRoot = ""
+    [string]$OneDriveLocalRoot = "",
+    [switch]$Version
 )
+
+$ScriptVersion = "1.2.0"
+if ($Version) { Write-Host "Outlook Attachment Extractor v$ScriptVersion"; exit 0 }
 
 $ErrorActionPreference = "Continue"
 
@@ -106,6 +110,7 @@ if ($OutputPath -eq "") {
 
 $indexFile = Join-Path $OutputPath "Email Attachments\_attachment_index.csv"
 
+Write-Host "Outlook Attachment Extractor v$ScriptVersion" -ForegroundColor DarkGray
 Write-Host "Output directory: $OutputPath" -ForegroundColor Cyan
 
 # === Determine SharePoint web link base (for "Open in browser" links) ===

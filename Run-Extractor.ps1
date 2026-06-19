@@ -12,6 +12,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
+$ScriptVersion = "1.2.0"
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worker      = Join-Path $scriptDir "Extract-Attachments.ps1"
 
@@ -215,7 +216,7 @@ function Show-Status {
     $estText = if ($null -ne $est) { "$est emails match (older-than filter); up to $($cfg.MaxItems) will be scanned" } else { "Inbox + Sent" }
     Write-Host ""
     $spText = if ($cfg.SharePointWebRoot) { $cfg.SharePointWebRoot } else { "(none - local links only)" }
-    Write-Host "==================== Outlook Attachment Extractor ====================" -ForegroundColor Cyan
+    Write-Host "============== Outlook Attachment Extractor  v$ScriptVersion ==============" -ForegroundColor Cyan
     Write-Host (" Save path    : {0}" -f $cfg.OutputPath)
     Write-Host (" Email folder : {0}" -f $cfg.Folder)
     Write-Host (" SharePoint   : {0}" -f $spText)

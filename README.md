@@ -9,7 +9,16 @@ Let's collaborate and make this tool awesome!
 
 # Outlook Attachment Extractor
 
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)
+![Outlook](https://img.shields.io/badge/Outlook-Classic%20desktop-0072C6?logo=microsoftoutlook&logoColor=white)
+![OS Support](https://img.shields.io/badge/macOS%20%2F%20Linux%20%2F%20New%20Outlook-not%20supported-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 > **⚠️ Windows Only** — Requires Windows 10/11 with Microsoft Outlook desktop app (classic).
+
+> **Compatibility at a glance:** ✅ Windows 10/11 + classic Outlook desktop + PowerShell 5.1+ &nbsp;•&nbsp; ❌ macOS, Linux, Outlook on the web (OWA), and the "New Outlook" app (no COM API).
 
 Extract large attachments from your Outlook mailbox to a local folder (e.g. OneDrive), organized by file type and date. Free up mailbox space without losing access to your files.
 
@@ -325,6 +334,10 @@ Run monthly to keep your mailbox lean:
 - **Fix: script now parses on PowerShell 5.1 without a BOM.** Replaced non-ASCII
   em-dashes (which Windows PowerShell misread as ANSI, corrupting string parsing)
   with ASCII hyphens.
+- **Versioning & compatibility labels.** Added a `$ScriptVersion` constant (shown
+  at startup; `Extract-Attachments.ps1 -Version` prints it), README version +
+  platform/PowerShell/Outlook compatibility badges, and a `CONTRIBUTING.md`
+  documenting the SemVer policy and the dev-branch -> PR workflow.
 
 ### v1.1.0
 - **Fix:** `-OlderThanDays 0` now correctly processes all emails including those received today. Previously, same-day emails were always excluded due to a midnight-boundary comparison.
