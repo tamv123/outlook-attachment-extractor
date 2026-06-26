@@ -77,7 +77,7 @@ param(
     [switch]$Version
 )
 
-$ScriptVersion = "1.2.0"
+$ScriptVersion = "1.2.1"
 if ($Version) { Write-Host "Outlook Attachment Extractor v$ScriptVersion"; exit 0 }
 
 $ErrorActionPreference = "Continue"

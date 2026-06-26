@@ -12,7 +12,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
-$ScriptVersion = "1.2.0"
+$ScriptVersion = "1.2.1"
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worker      = Join-Path $scriptDir "Extract-Attachments.ps1"
 
@@ -262,7 +262,10 @@ while ($true) {
             else { Write-Host "Cancelled." -ForegroundColor Yellow }
             Read-Host "Press Enter to continue"
         }
-        "9" { Write-Host "Bye."; break }
+        # Use 'exit' here, not 'break': in PowerShell a 'break' inside a switch
+        # only leaves the switch, so the menu loop would redraw instead of
+        # quitting. Exiting the script lets the Run-Extractor.bat window close.
+        "9" { Write-Host "Bye."; exit 0 }
         default { Write-Host "Enter a number 1-9." -ForegroundColor Yellow }
     }
 }
