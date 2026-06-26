@@ -1,0 +1,68 @@
+name: Publish download ZIP
+
+# Packages the three files an end user needs (Run-Extractor.bat,
+# Run-Extractor.ps1, Extract-Attachments.ps1) into a single clean ZIP and
+# publishes it to a GitHub Release, so the README's one-click download link
+# always serves the latest version. Runs whenever those files change on main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Run-Extractor.bat'
+      - 'Run-Extractor.ps1'
+      - 'Extract-Attachments.ps1'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-download-zip
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Read the script version
+        id: ver
+        run: |
+          version="$(grep -oP '\$ScriptVersion\s*=\s*"\K[0-9]+\.[0-9]+\.[0-9]+' Extract-Attachments.ps1 | head -n1)"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read \$ScriptVersion from Extract-Attachments.ps1"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Detected version $version"
+
+      - name: Build the download ZIP (only the 3 files users need)
+        run: |
+          zip -j outlook-attachment-extractor.zip \
+            Run-Extractor.bat \
+            Run-Extractor.ps1 \
+            Extract-Attachments.ps1
+          echo "ZIP contents:"
+          unzip -l outlook-attachment-extractor.zip
+
+      - name: Publish / update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.ver.outputs.version }}
+        run: |
+          notes="Automated build of the launcher for ${TAG}. Download \`outlook-attachment-extractor.zip\`, extract it, and double-click \`Run-Extractor.bat\`. Contains Run-Extractor.bat, Run-Extractor.ps1 and Extract-Attachments.ps1."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - updating its asset."
+            gh release upload "$TAG" outlook-attachment-extractor.zip --clobber
+            gh release edit "$TAG" --latest --notes "$notes"
+          else
+            echo "Creating release $TAG."
+            gh release create "$TAG" outlook-attachment-extractor.zip \
+              --title "$TAG" \
+              --notes "$notes" \
+              --latest
+          fi

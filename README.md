@@ -22,6 +22,22 @@ Let's collaborate and make this tool awesome!
 
 Extract large attachments from your Outlook mailbox to a local folder (e.g. OneDrive), organized by file type and date. Free up mailbox space without losing access to your files.
 
+## ⬇️ Download (no GitHub account needed)
+
+### [**⬇️ Download the latest version (ZIP)**](https://github.com/tamv123/outlook-attachment-extractor/releases/latest/download/outlook-attachment-extractor.zip)
+
+One click downloads all three required files together, always at the newest
+version. Then:
+
+1. **Extract** the downloaded `outlook-attachment-extractor.zip`
+   (right-click it → **Extract All...**).
+2. Open the extracted folder and **double-click `Run-Extractor.bat`**.
+3. Follow the on-screen menu.
+
+No install, no admin rights, and no PowerShell or GitHub knowledge required — the
+ZIP always contains the latest `Run-Extractor.bat`, `Run-Extractor.ps1`, and
+`Extract-Attachments.ps1`.
+
 ## Why You Need This
 
 > **It's 4:55 PM. You hit "Send" on the proposal your client needs before end of day.**
@@ -87,13 +103,19 @@ Outlook Mailbox                          Your OneDrive / Downloads
 
 ## Installation
 
-1. **Clone this repository** (or download the ZIP):
-   ```powershell
-   git clone https://github.com/tamv123/outlook-attachment-extractor.git
-   cd outlook-attachment-extractor
-   ```
+**Most users — one-click download (recommended):**
 
-2. **That's it.** No dependencies to install — it's a single PowerShell script.
+1. Click **[Download the latest version (ZIP)](https://github.com/tamv123/outlook-attachment-extractor/releases/latest/download/outlook-attachment-extractor.zip)**.
+2. Extract the ZIP and **double-click `Run-Extractor.bat`**.
+
+That's it — no dependencies, no admin rights, no GitHub account.
+
+**Developers — clone the repo:**
+
+```powershell
+git clone https://github.com/tamv123/outlook-attachment-extractor.git
+cd outlook-attachment-extractor
+```
 
 ## Easiest: double-click `Run-Extractor.bat`
 
@@ -130,8 +152,9 @@ changes — that runs against your own Outlook and your own OneDrive:
   the "Open in browser" link added to each email; you can override or disable it.
 
 Keep `Run-Extractor.bat`, `Run-Extractor.ps1`, and `Extract-Attachments.ps1`
-together in the same folder. To share with someone, send them the whole folder
-(or the repo ZIP) — they double-click the `.bat` and it just works.
+together in the same folder. To share with someone, just send them the
+[one-click download link](https://github.com/tamv123/outlook-attachment-extractor/releases/latest/download/outlook-attachment-extractor.zip) —
+they extract the ZIP, double-click the `.bat`, and it just works.
 
 ## Quick Start (PowerShell)
 
