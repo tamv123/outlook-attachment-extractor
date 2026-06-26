@@ -9,7 +9,7 @@ Let's collaborate and make this tool awesome!
 
 # Outlook Attachment Extractor
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.1-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)
 ![Outlook](https://img.shields.io/badge/Outlook-Classic%20desktop-0072C6?logo=microsoftoutlook&logoColor=white)
@@ -323,6 +323,14 @@ Run monthly to keep your mailbox lean:
 ```
 
 ## Changelog
+
+### v1.2.1
+- **Fix: "9) Quit" now actually exits the launcher and closes its window.**
+  A `break` inside the menu's `switch` only exited the `switch`, not the
+  enclosing `while` loop, so choosing **Quit** printed "Bye." and then redrew
+  the menu instead of closing (it looked like the script restarted). The
+  launcher now exits cleanly (`exit 0`), so the `Run-Extractor.bat` cmd window
+  shuts down as expected.
 
 ### v1.2.0
 - **New: `Run-Extractor.bat` + `Run-Extractor.ps1`** — double-click interactive
