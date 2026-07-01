@@ -9,7 +9,7 @@ Let's collaborate and make this tool awesome!
 
 # Outlook Attachment Extractor
 
-![Version](https://img.shields.io/badge/version-1.2.1-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)
 ![Outlook](https://img.shields.io/badge/Outlook-Classic%20desktop-0072C6?logo=microsoftoutlook&logoColor=white)
@@ -355,6 +355,18 @@ Run monthly to keep your mailbox lean:
 ```
 
 ## Changelog
+
+### v1.3.0
+- **New: the launcher remembers your settings between runs.** `Run-Extractor.ps1`
+  now saves your save path, target folder, size/age/max filters, and SharePoint
+  web base to a per-user config file
+  (`%USERPROFILE%\.outlook-attachment-extractor\config.json`) and restores them
+  on the next launch, so you no longer have to reconfigure everything each time.
+  Stale values (a folder or save path that no longer exists) fall back to the
+  auto-detected default, and a corrupted config file is ignored safely. The
+  dry-run / extract / remove safety choices are deliberately **not** remembered
+  and are always chosen fresh from the menu, so a destructive run stays a
+  deliberate action.
 
 ### v1.2.1
 - **Fix: "9) Quit" now actually exits the launcher and closes its window.**

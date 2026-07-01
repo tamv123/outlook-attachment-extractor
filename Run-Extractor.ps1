@@ -13,7 +13,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
-$ScriptVersion = "1.2.1"
+$ScriptVersion = "1.3.0"
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worker      = Join-Path $scriptDir "Extract-Attachments.ps1"
 
