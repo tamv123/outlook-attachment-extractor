@@ -8,6 +8,7 @@
     - choose & validate the target Outlook folder (shows live item count)
     - estimate how many emails match the current filters before extracting
     - run a safe single-email test before processing everything
+    - remember your settings so the next run doesn't need reconfiguring
   No parameters: just double-click Run-Extractor.bat (which calls this script).
 #>
 
@@ -73,6 +74,69 @@ function Get-DefaultSharePoint {
         }
     }
     return $result
+}
+
+# ---- Remember settings between runs (per-user config file) ----
+# Persist the user's choices locally so the next launch doesn't need
+# reconfiguring. Stored per Windows user, outside the app folder.
+$configDir  = Join-Path $env:USERPROFILE ".outlook-attachment-extractor"
+$configPath = Join-Path $configDir "config.json"
+
+function Save-Config {
+    # Persist the durable settings from $cfg. FolderObj is a live COM object and
+    # is intentionally NOT saved - it is rebuilt from the folder name on load.
+    try {
+        if (-not (Test-Path $configDir)) {
+            New-Item -ItemType Directory -Path $configDir -Force -ErrorAction Stop | Out-Null
+        }
+        $toSave = [ordered]@{
+            OutputPath        = $cfg.OutputPath
+            Folder            = $cfg.Folder
+            MinSizeMB         = $cfg.MinSizeMB
+            OlderThanDays     = $cfg.OlderThanDays
+            MaxItems          = $cfg.MaxItems
+            SharePointWebRoot = $cfg.SharePointWebRoot
+            OneDriveLocalRoot = $cfg.OneDriveLocalRoot
+            _savedAt          = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        }
+        $toSave | ConvertTo-Json | Out-File -FilePath $configPath -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-Host "NOTE: couldn't save settings to $configPath ($($_.Exception.Message))" -ForegroundColor DarkYellow
+    }
+}
+
+function Load-Config {
+    # Overlay any saved settings onto $cfg, re-validating so stale values (a
+    # deleted folder or a missing save path) fall back to the detected defaults.
+    if (-not (Test-Path $configPath)) { return }
+    try {
+        $saved = Get-Content $configPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    } catch {
+        Write-Host "NOTE: saved settings unreadable ($configPath); using defaults." -ForegroundColor DarkYellow
+        return
+    }
+    if ($null -ne $saved.MinSizeMB)     { $cfg.MinSizeMB     = [double]$saved.MinSizeMB }
+    if ($null -ne $saved.OlderThanDays) { $cfg.OlderThanDays = [int]$saved.OlderThanDays }
+    if ($null -ne $saved.MaxItems)      { $cfg.MaxItems      = [int]$saved.MaxItems }
+    if ($saved.SharePointWebRoot) { $cfg.SharePointWebRoot = [string]$saved.SharePointWebRoot }
+    if ($saved.OneDriveLocalRoot) { $cfg.OneDriveLocalRoot = [string]$saved.OneDriveLocalRoot }
+    if ($saved.OutputPath) {
+        if (Test-Path $saved.OutputPath) {
+            $cfg.OutputPath = [string]$saved.OutputPath
+        } else {
+            Write-Host ("NOTE: saved save path no longer exists ({0}); using {1}." -f $saved.OutputPath, $cfg.OutputPath) -ForegroundColor DarkYellow
+        }
+    }
+    if ($saved.Folder) {
+        $resolved = Resolve-Folder ([string]$saved.Folder)
+        if ($resolved) {
+            $cfg.Folder    = [string]$saved.Folder
+            $cfg.FolderObj = $resolved.Obj
+        } else {
+            Write-Host ("NOTE: saved folder '{0}' not found; using '{1}'." -f $saved.Folder, $cfg.Folder) -ForegroundColor DarkYellow
+        }
+    }
+    Write-Host "Restored your saved settings from $configPath" -ForegroundColor Green
 }
 
 # ---- Resolve an Outlook folder by name (inbox/sent/drafts/all/custom) ----
@@ -211,6 +275,12 @@ $cfg = [ordered]@{
     OneDriveLocalRoot = $spDefault.LocalRoot
 }
 
+# Restore previously saved settings (if any); seed the file on first run so the
+# detected defaults are remembered next time too.
+Load-Config
+if (-not (Test-Path $configPath)) { Save-Config }
+Write-Host "Your settings are remembered in $configPath" -ForegroundColor DarkGray
+
 function Show-Status {
     $est = Estimate-Count $cfg.FolderObj
     $estText = if ($null -ne $est) { "$est emails match (older-than filter); up to $($cfg.MaxItems) will be scanned" } else { "Inbox + Sent" }
@@ -239,10 +309,10 @@ while ($true) {
     Show-Status
     $choice = Read-Host "Select [1-9]"
     switch ($choice) {
-        "1" { Set-SavePath }
-        "2" { Set-Folder }
-        "3" { Set-SharePoint }
-        "4" { Set-Filters }
+        "1" { Set-SavePath;   Save-Config }
+        "2" { Set-Folder;     Save-Config }
+        "3" { Set-SharePoint; Save-Config }
+        "4" { Set-Filters;    Save-Config }
         "5" { Run-Worker $true $false 0; Read-Host "Press Enter to continue" }
         "6" {
             Write-Host "Extracting ONE email as a test (no removal)..." -ForegroundColor Cyan

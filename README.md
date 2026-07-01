@@ -89,6 +89,7 @@ Outlook Mailbox                          Your OneDrive / Downloads
 - 🧹 **Optionally removes** attachments from emails to free server-side mailbox space
 - 🔍 **Dry-run mode** — preview everything before making any changes
 - ⏱️ **Batch processing** — processes oldest emails first, with configurable limits
+- 💾 **Remembers your settings** — the interactive launcher saves your choices per user, so you don't reconfigure on every run
 
 ## Requirements
 
@@ -150,6 +151,14 @@ changes — that runs against your own Outlook and your own OneDrive:
   everything.
 - **SharePoint web base** is auto-detected from your OneDrive sign-in and powers
   the "Open in browser" link added to each email; you can override or disable it.
+- **Your settings are remembered.** After you change the save path, folder,
+  filters, or SharePoint base, the launcher saves them to
+  `%USERPROFILE%\.outlook-attachment-extractor\config.json`. The next time you
+  start it, your previous configuration is restored automatically — no need to
+  set everything up again. (If a saved folder or save path no longer exists, the
+  launcher quietly falls back to the auto-detected default.) The safety choices
+  — dry-run vs. extract vs. remove — are always chosen fresh from the menu and
+  are never remembered, so a destructive run is always a deliberate action.
 
 Keep `Run-Extractor.bat`, `Run-Extractor.ps1`, and `Extract-Attachments.ps1`
 together in the same folder. To share with someone, just send them the

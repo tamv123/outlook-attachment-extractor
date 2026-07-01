@@ -8,6 +8,10 @@ Email Attachments/
 *.tmp
 *.bak
 
+# Saved launcher settings (per-user config, if placed in the app folder)
+config.json
+.outlook-attachment-extractor/
+
 # Windows
 Thumbs.db
 desktop.ini
