@@ -5,15 +5,15 @@
 .DESCRIPTION
   Guides the user through configuring and running an extraction:
     - choose & validate the save path (with an auto-detected default)
-    - choose & validate the target Outlook folder (shows live item count)
-    - estimate how many emails match the current filters before extracting
+    - choose & validate one or more target Outlook folders
+    - accurately estimate what a real run will extract (size + max aware)
     - run a safe single-email test before processing everything
     - remember your settings so the next run doesn't need reconfiguring
   No parameters: just double-click Run-Extractor.bat (which calls this script).
 #>
 
 $ErrorActionPreference = "Stop"
-$ScriptVersion = "1.3.0"
+$ScriptVersion = "2.0.0"
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worker      = Join-Path $scriptDir "Extract-Attachments.ps1"
 
@@ -83,8 +83,8 @@ $configDir  = Join-Path $env:USERPROFILE ".outlook-attachment-extractor"
 $configPath = Join-Path $configDir "config.json"
 
 function Save-Config {
-    # Persist the durable settings from $cfg. FolderObj is a live COM object and
-    # is intentionally NOT saved - it is rebuilt from the folder name on load.
+    # Persist the durable settings from $cfg. FolderObjs are live COM objects and
+    # are intentionally NOT saved - they are rebuilt from the folder names on load.
     try {
         if (-not (Test-Path $configDir)) {
             New-Item -ItemType Directory -Path $configDir -Force -ErrorAction Stop | Out-Null
@@ -128,12 +128,17 @@ function Load-Config {
         }
     }
     if ($saved.Folder) {
-        $resolved = Resolve-Folder ([string]$saved.Folder)
-        if ($resolved) {
-            $cfg.Folder    = [string]$saved.Folder
-            $cfg.FolderObj = $resolved.Obj
+        $resolved = Resolve-Folders ([string]$saved.Folder)
+        if ($resolved.List.Count -gt 0) {
+            if ($resolved.Bad.Count -eq 0) {
+                $cfg.Folder = [string]$saved.Folder
+            } else {
+                $cfg.Folder = ($resolved.List | ForEach-Object { $_.Name }) -join ','
+                Write-Host ("NOTE: saved folder(s) not found: {0}; using '{1}'." -f ($resolved.Bad -join ', '), $cfg.Folder) -ForegroundColor DarkYellow
+            }
+            $cfg.FolderObjs = @($resolved.List | ForEach-Object { $_.Obj })
         } else {
-            Write-Host ("NOTE: saved folder '{0}' not found; using '{1}'." -f $saved.Folder, $cfg.Folder) -ForegroundColor DarkYellow
+            Write-Host ("NOTE: saved folder(s) '{0}' not found; using '{1}'." -f $saved.Folder, $cfg.Folder) -ForegroundColor DarkYellow
         }
     }
     Write-Host "Restored your saved settings from $configPath" -ForegroundColor Green
@@ -154,21 +159,88 @@ function Resolve-Folder($name) {
     }
 }
 
-function List-TopFolders {
-    $root = $ns.GetDefaultFolder(6).Store.GetRootFolder()
-    Write-Host "Available top-level folders:" -ForegroundColor Cyan
-    foreach ($f in $root.Folders) { Write-Host ("  - {0} ({1} items)" -f $f.Name, $f.Items.Count) }
+# ---- Resolve a comma-separated list of folders into live COM objects ----
+# Accepts numbers-already-mapped names and keywords (inbox/sent/drafts/all).
+# "all" expands to Inbox + Sent Items. Duplicates (by name) are removed.
+# Returns @{ List = @(@{Name;Obj}...); Bad = @(unresolved names) }.
+function Resolve-Folders($spec) {
+    $list = @(); $bad = @(); $seen = @{}
+    foreach ($tok in ($spec -split ',')) {
+        $name = $tok.Trim()
+        if ($name -eq "") { continue }
+        if ($name.ToLower() -eq "all") {
+            $expand = @(
+                @{ Name = "Inbox";      Obj = $ns.GetDefaultFolder(6) },
+                @{ Name = "Sent Items"; Obj = $ns.GetDefaultFolder(5) }
+            )
+        } else {
+            $r = Resolve-Folder $name
+            if (-not $r -or -not $r.Obj) { $bad += $name; continue }
+            $expand = @(@{ Name = $r.Name; Obj = $r.Obj })
+        }
+        foreach ($f in $expand) {
+            $key = $f.Name.ToLower()
+            if (-not $seen.ContainsKey($key)) { $seen[$key] = $true; $list += $f }
+        }
+    }
+    return @{ List = $list; Bad = $bad }
 }
 
-# ---- Estimate emails matching current filters in a folder ----
-function Estimate-Count($folderObj) {
-    if (-not $folderObj) { return $null }       # 'all' - skip precise estimate
-    $items = $folderObj.Items
-    if ($cfg.OlderThanDays -gt 0) {
-        $cut = (Get-Date).AddDays(-$cfg.OlderThanDays).ToString("MM/dd/yyyy")
-        return $items.Restrict("[ReceivedTime] < '$cut'").Count
+# ---- Estimate what a real run would actually extract ----
+# Mirrors the worker exactly: per folder, oldest-first, restricted by the age
+# filter, scan up to MaxItems and count emails that truly have a qualifying
+# attachment (>= MinSizeMB, not an inline image), summing their size. This
+# reflects the size filter AND the per-run MaxItems cap - not just folder+date.
+function Estimate-Run($folderObjs) {
+    $dateMatch = 0; $emails = 0; $atts = 0; $sizeMB = 0.0; $capped = $false
+    foreach ($fo in $folderObjs) {
+        if (-not $fo) { continue }
+        try {
+            $items = $fo.Items
+            $items.Sort("[ReceivedTime]", $false)
+            if ($cfg.OlderThanDays -gt 0) {
+                $cut = (Get-Date).AddDays(-$cfg.OlderThanDays).ToString("MM/dd/yyyy")
+                $filtered = $items.Restrict("[ReceivedTime] < '$cut'")
+            } else {
+                $filtered = $items
+            }
+            $dateMatch += $filtered.Count
+            if ($filtered.Count -gt $cfg.MaxItems) { $capped = $true }
+            $processed = 0
+            $item = $filtered.GetFirst()
+            while ($item -ne $null -and $processed -lt $cfg.MaxItems) {
+                if ($item.Attachments.Count -gt 0) {
+                    $hit = $false
+                    for ($a = 1; $a -le $item.Attachments.Count; $a++) {
+                        $att = $item.Attachments.Item($a)
+                        $mb = [Math]::Round($att.Size / 1MB, 2)
+                        if ($mb -ge $cfg.MinSizeMB -and $att.Type -ne 6) {
+                            $hit = $true; $atts++; $sizeMB += $mb
+                        }
+                    }
+                    if ($hit) { $emails++ }
+                }
+                $processed++
+                $item = $filtered.GetNext()
+            }
+        } catch {
+            Write-Host "NOTE: couldn't scan a folder for the estimate ($($_.Exception.Message))" -ForegroundColor DarkYellow
+        }
     }
-    return $items.Count
+    return [ordered]@{
+        DateMatch   = $dateMatch
+        Emails      = $emails
+        Attachments = $atts
+        SizeMB      = [Math]::Round($sizeMB, 1)
+        Capped      = $capped
+    }
+}
+
+# ---- Recompute + cache the estimate (call after folder/filter changes) ----
+function Refresh-Estimate {
+    Write-Host ("Estimating (scanning up to {0} email(s) per folder)..." -f $cfg.MaxItems) -ForegroundColor DarkGray
+    try   { $script:estimate = Estimate-Run $cfg.FolderObjs }
+    catch { $script:estimate = $null; Write-Host "NOTE: estimate failed ($($_.Exception.Message))" -ForegroundColor DarkYellow }
 }
 
 # ---- Validate / prompt for a writable save path ----
@@ -194,22 +266,52 @@ function Set-SavePath {
     }
 }
 
-# ---- Validate / prompt for target folder ----
+# ---- Validate / prompt for one or MORE target folders ----
 function Set-Folder {
-    List-TopFolders
-    Write-Host "(Or type: inbox, sent, drafts, all)" -ForegroundColor DarkGray
+    $root = $ns.GetDefaultFolder(6).Store.GetRootFolder()
+    $topFolders = @($root.Folders | ForEach-Object { $_.Name })
+    Write-Host "Available top-level folders:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $topFolders.Count; $i++) {
+        Write-Host ("  {0}) {1}" -f ($i + 1), $topFolders[$i])
+    }
+    Write-Host "Pick one or MORE, comma-separated - by number or name." -ForegroundColor DarkGray
+    Write-Host "Keywords: inbox, sent, drafts, all.   e.g.  1,sent   or   inbox,Projects" -ForegroundColor DarkGray
     while ($true) {
-        $name = Read-Host "Enter folder (blank = keep '$($cfg.Folder)')"
-        if ([string]::IsNullOrWhiteSpace($name)) { return }
-        $resolved = Resolve-Folder $name
-        if (-not $resolved) { Write-Host "Folder '$name' not found. Try again." -ForegroundColor Red; continue }
-        $cfg.Folder    = $name
-        $cfg.FolderObj = $resolved.Obj
-        if ($resolved.Obj) {
-            Write-Host ("Folder set: {0} ({1} items total)" -f $resolved.Name, $resolved.Obj.Items.Count) -ForegroundColor Green
-        } else {
-            Write-Host "Folder set: all (Inbox + Sent Items)" -ForegroundColor Green
+        $reply = Read-Host "Enter folder(s) (blank = keep '$($cfg.Folder)')"
+        if ([string]::IsNullOrWhiteSpace($reply)) { return }
+        # Map numeric tokens to the listed folder names; keep keywords/names as-is.
+        $tokens = @(); $ok = $true
+        foreach ($tok in ($reply -split ',')) {
+            $t = $tok.Trim()
+            if ($t -eq "") { continue }
+            if ($t -match '^\d+$') {
+                $idx = [int]$t
+                if ($idx -ge 1 -and $idx -le $topFolders.Count) {
+                    $tokens += $topFolders[$idx - 1]
+                } else {
+                    Write-Host "Number '$t' is out of range (1-$($topFolders.Count))." -ForegroundColor Red
+                    $ok = $false; break
+                }
+            } else {
+                $tokens += $t
+            }
         }
+        if (-not $ok) { continue }
+        if ($tokens.Count -eq 0) { Write-Host "Nothing entered. Try again." -ForegroundColor Red; continue }
+        $spec = ($tokens -join ',')
+        $resolved = Resolve-Folders $spec
+        if ($resolved.Bad.Count -gt 0) {
+            Write-Host ("Folder(s) not found: {0}. Try again." -f ($resolved.Bad -join ', ')) -ForegroundColor Red
+            continue
+        }
+        if ($resolved.List.Count -eq 0) {
+            Write-Host "No valid folder chosen. Try again." -ForegroundColor Red
+            continue
+        }
+        $cfg.Folder     = $spec
+        $cfg.FolderObjs = @($resolved.List | ForEach-Object { $_.Obj })
+        $names = ($resolved.List | ForEach-Object { $_.Name }) -join ', '
+        Write-Host ("Folder(s) set: {0}" -f $names) -ForegroundColor Green
         return
     }
 }
@@ -267,7 +369,7 @@ $spDefault = Get-DefaultSharePoint
 $cfg = [ordered]@{
     OutputPath        = Get-DefaultSavePath
     Folder            = "inbox"
-    FolderObj         = $ns.GetDefaultFolder(6)
+    FolderObjs        = @($ns.GetDefaultFolder(6))
     MinSizeMB         = 1
     OlderThanDays     = 90
     MaxItems          = 100
@@ -282,19 +384,24 @@ if (-not (Test-Path $configPath)) { Save-Config }
 Write-Host "Your settings are remembered in $configPath" -ForegroundColor DarkGray
 
 function Show-Status {
-    $est = Estimate-Count $cfg.FolderObj
-    $estText = if ($null -ne $est) { "$est emails match (older-than filter); up to $($cfg.MaxItems) will be scanned" } else { "Inbox + Sent" }
     Write-Host ""
     $spText = if ($cfg.SharePointWebRoot) { $cfg.SharePointWebRoot } else { "(none - local links only)" }
     Write-Host "============== Outlook Attachment Extractor  v$ScriptVersion ==============" -ForegroundColor Cyan
     Write-Host (" Save path    : {0}" -f $cfg.OutputPath)
     Write-Host (" Email folder : {0}" -f $cfg.Folder)
     Write-Host (" SharePoint   : {0}" -f $spText)
-    Write-Host (" Filters      : >= {0} MB | older than {1} days | max {2}/run" -f $cfg.MinSizeMB, $cfg.OlderThanDays, $cfg.MaxItems)
-    Write-Host (" Estimate     : {0}" -f $estText) -ForegroundColor Yellow
+    Write-Host (" Filters      : >= {0} MB | older than {1} days | max {2}/run per folder" -f $cfg.MinSizeMB, $cfg.OlderThanDays, $cfg.MaxItems)
+    $e = $script:estimate
+    if ($e) {
+        Write-Host (" Estimate     : {0} attachment(s) in {1} email(s), ~{2} MB will be extracted" -f $e.Attachments, $e.Emails, $e.SizeMB) -ForegroundColor Yellow
+        $note = if ($e.Capped) { "; raise 'max' to cover the rest" } else { "" }
+        Write-Host ("                (>= {0} MB filter; {1} email(s) match the age filter; up to {2} scanned per folder{3})" -f $cfg.MinSizeMB, $e.DateMatch, $cfg.MaxItems, $note) -ForegroundColor DarkYellow
+    } else {
+        Write-Host " Estimate     : (unavailable - change folder/filters to recompute)" -ForegroundColor DarkYellow
+    }
     Write-Host "----------------------------------------------------------------------"
     Write-Host " 1) Change save path"
-    Write-Host " 2) Change email folder"
+    Write-Host " 2) Change email folder(s)"
     Write-Host " 3) Change SharePoint web link base ('Open in browser' links)"
     Write-Host " 4) Change filters (size / age / max)"
     Write-Host " 5) Preview (dry run - exact attachment list, no changes)"
@@ -305,14 +412,16 @@ function Show-Status {
     Write-Host "======================================================================" -ForegroundColor Cyan
 }
 
+Refresh-Estimate
+
 while ($true) {
     Show-Status
     $choice = Read-Host "Select [1-9]"
     switch ($choice) {
         "1" { Set-SavePath;   Save-Config }
-        "2" { Set-Folder;     Save-Config }
+        "2" { Set-Folder;     Save-Config; Refresh-Estimate }
         "3" { Set-SharePoint; Save-Config }
-        "4" { Set-Filters;    Save-Config }
+        "4" { Set-Filters;    Save-Config; Refresh-Estimate }
         "5" { Run-Worker $true $false 0; Read-Host "Press Enter to continue" }
         "6" {
             Write-Host "Extracting ONE email as a test (no removal)..." -ForegroundColor Cyan
