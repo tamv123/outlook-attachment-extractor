@@ -4,8 +4,8 @@
   preserving email-attachment links.
 
 .DESCRIPTION
-  Scans Outlook folders for emails with large attachments, saves them to a
-  configurable output directory organized by file-type category and date,
+  Scans Outlook folders for emails with large attachments, saves them directly
+  to a configurable output directory (no extra sub-folders are created),
   creates an index CSV mapping, inserts a reference link into the email body,
   and optionally removes the attachment from the email to free mailbox space.
 
@@ -14,8 +14,9 @@
     - PowerShell 5.1+
 
 .PARAMETER Folder
-  Outlook folder to scan: inbox, sent, drafts, all, or a custom folder name.
-  Default: inbox
+  Outlook folder(s) to scan. Accepts a single value or a comma-separated list:
+  inbox, sent, drafts, all, and/or any custom top-level folder name(s), e.g.
+  "inbox,sent,Projects". "all" expands to Inbox + Sent Items. Default: inbox
 
 .PARAMETER MinSizeMB
   Minimum attachment size in MB to extract. Default: 1
@@ -52,6 +53,10 @@
   .\Extract-Attachments.ps1 -Folder sent -DryRun $false
 
 .EXAMPLE
+  # Extract from several folders in one run (comma-separated)
+  .\Extract-Attachments.ps1 -Folder "inbox,sent,Projects" -DryRun $false
+
+.EXAMPLE
   # Extract AND remove attachments to free mailbox space
   .\Extract-Attachments.ps1 -DryRun $false -RemoveAfterExtract $true
 
@@ -77,7 +82,7 @@ param(
     [switch]$Version
 )
 
-$ScriptVersion = "1.3.0"
+$ScriptVersion = "2.0.0"
 if ($Version) { Write-Host "Outlook Attachment Extractor v$ScriptVersion"; exit 0 }
 
 $ErrorActionPreference = "Continue"
@@ -108,7 +113,7 @@ if ($OutputPath -eq "") {
     }
 }
 
-$indexFile = Join-Path $OutputPath "Email Attachments\_attachment_index.csv"
+$indexFile = Join-Path $OutputPath "_attachment_index.csv"
 
 Write-Host "Outlook Attachment Extractor v$ScriptVersion" -ForegroundColor DarkGray
 Write-Host "Output directory: $OutputPath" -ForegroundColor Cyan
@@ -229,21 +234,41 @@ function Get-OutlookFolder($folderName) {
     }
 }
 
-if ($Folder -eq "all") {
-    $folders = @(
-        @{ Name = "Inbox"; Obj = $ns.GetDefaultFolder(6) },
-        @{ Name = "Sent Items"; Obj = $ns.GetDefaultFolder(5) }
-    )
-} else {
-    $targetFolder = Get-OutlookFolder $Folder
-    $folders = @(@{ Name = $Folder; Obj = $targetFolder })
+# Build the list of folders to scan. -Folder accepts a single value or a
+# comma-separated list (e.g. "inbox,sent,Projects"). "all" expands to Inbox +
+# Sent Items. Keyword folders are normalized to their canonical names so a
+# folder referenced two ways (e.g. "sent" and "all") is scanned only once.
+$folders = @()
+$seen = @{}
+foreach ($token in ($Folder -split ',')) {
+    $name = $token.Trim()
+    if ($name -eq "") { continue }
+    switch ($name.ToLower()) {
+        "all" {
+            $expand = @(
+                @{ Name = "Inbox";      Obj = $ns.GetDefaultFolder(6) },
+                @{ Name = "Sent Items"; Obj = $ns.GetDefaultFolder(5) }
+            )
+        }
+        "inbox"  { $expand = @(@{ Name = "Inbox";      Obj = $ns.GetDefaultFolder(6) }) }
+        "sent"   { $expand = @(@{ Name = "Sent Items"; Obj = $ns.GetDefaultFolder(5) }) }
+        "drafts" { $expand = @(@{ Name = "Drafts";     Obj = $ns.GetDefaultFolder(16) }) }
+        default  { $expand = @(@{ Name = $name;        Obj = (Get-OutlookFolder $name) }) }
+    }
+    foreach ($f in $expand) {
+        $key = $f.Name.ToLower()
+        if (-not $seen.ContainsKey($key)) { $seen[$key] = $true; $folders += $f }
+    }
+}
+if ($folders.Count -eq 0) {
+    Write-Host "ERROR: No valid folder specified in -Folder '$Folder'." -ForegroundColor Red
+    exit 1
 }
 
-# === Ensure output directories exist ===
+# === Ensure output directory exists ===
 if (-not $DryRun) {
-    $emailAttBase = Join-Path $OutputPath "Email Attachments"
-    if (-not (Test-Path $emailAttBase)) {
-        New-Item -ItemType Directory -Path $emailAttBase -Force | Out-Null
+    if (-not (Test-Path $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
     }
     if (-not (Test-Path $indexFile)) {
         "EmailEntryID,Subject,Sender,ReceivedDate,Folder,AttachmentName,OriginalSizeMB,SavedPath,Category,ExtractedDate" | Out-File -FilePath $indexFile -Encoding UTF8
@@ -268,6 +293,23 @@ function Get-ShortSender($senderName) {
         return ($parts[0] + "_" + $parts[1]).Substring(0, [Math]::Min(20, ($parts[0] + "_" + $parts[1]).Length))
     }
     return $senderName.Substring(0, [Math]::Min(20, $senderName.Length))
+}
+
+# === Helper: Never overwrite an existing file ===
+# With a flat output folder, two different emails can produce the same
+# "date_sender_filename". Append " (2)", " (3)", ... on collision so no
+# extracted attachment is ever silently lost.
+function Get-UniquePath($path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $path }
+    $dir  = [IO.Path]::GetDirectoryName($path)
+    $base = [IO.Path]::GetFileNameWithoutExtension($path)
+    $ext  = [IO.Path]::GetExtension($path)
+    $n = 2
+    do {
+        $candidate = Join-Path $dir ("{0} ({1}){2}" -f $base, $n, $ext)
+        $n++
+    } while (Test-Path -LiteralPath $candidate)
+    return $candidate
 }
 
 # === Main Processing ===
@@ -315,13 +357,13 @@ foreach ($folderInfo in $folders) {
                         $totalExtracted++
                         $totalSizeMB += $sizeMB
 
-                        $yearMonth = $item.ReceivedTime.ToString("yyyy-MM")
                         $shortSender = Get-ShortSender $item.SenderName
                         $safeFilename = Sanitize-Filename $att.FileName
                         $saveName = "{0}_{1}_{2}" -f $item.ReceivedTime.ToString("yyyy-MM-dd"), $shortSender, $safeFilename
                         $category = Get-FileCategory $att.FileName
-                        $saveDir = Join-Path $OutputPath (Join-Path $category (Join-Path "Email Attachments" $yearMonth))
-                        $savePath = Join-Path $saveDir $saveName
+                        # Save directly into the chosen output folder (no category /
+                        # month sub-folders). Category is kept as index metadata only.
+                        $savePath = Join-Path $OutputPath $saveName
 
                         $result = [PSCustomObject]@{
                             Folder     = $folderName
@@ -341,12 +383,13 @@ foreach ($folderInfo in $folders) {
                                 $att.FileName.Substring(0, [Math]::Min(30, $att.FileName.Length)), `
                                 $item.Subject.Substring(0, [Math]::Min(50, $item.Subject.Length)))
                         } else {
-                            if (-not (Test-Path $saveDir)) {
-                                New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
-                            }
+                            # Never overwrite an existing file (flat folder means
+                            # possible name clashes across months / senders).
+                            $savePath = Get-UniquePath $savePath
+                            $result.SavePath = $savePath
 
                             $att.SaveAsFile($savePath)
-                            Write-Host ("  SAVED: {0} ({1:N1} MB) -> {2}" -f $safeFilename, $sizeMB, $category) -ForegroundColor Green
+                            Write-Host ("  SAVED: {0} ({1:N1} MB)" -f ([IO.Path]::GetFileName($savePath)), $sizeMB) -ForegroundColor Green
 
                             # Append to index CSV
                             $csvLine = '"{0}","{1}","{2}","{3}","{4}","{5}",{6},"{7}","{8}","{9}"' -f `

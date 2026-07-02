@@ -9,7 +9,7 @@ Let's collaborate and make this tool awesome!
 
 # Outlook Attachment Extractor
 
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)
 ![Outlook](https://img.shields.io/badge/Outlook-Classic%20desktop-0072C6?logo=microsoftoutlook&logoColor=white)
@@ -20,7 +20,7 @@ Let's collaborate and make this tool awesome!
 
 > **Compatibility at a glance:** ✅ Windows 10/11 + classic Outlook desktop + PowerShell 5.1+ &nbsp;•&nbsp; ❌ macOS, Linux, Outlook on the web (OWA), and the "New Outlook" app (no COM API).
 
-Extract large attachments from your Outlook mailbox to a local folder (e.g. OneDrive), organized by file type and date. Free up mailbox space without losing access to your files.
+Extract large attachments from your Outlook mailbox to a local folder (e.g. OneDrive). Files are saved **straight into the folder you choose** - no extra sub-folders - so everything lands in one place. Free up mailbox space without losing access to your files.
 
 ## ⬇️ Download (no GitHub account needed)
 
@@ -71,23 +71,24 @@ The result: you reclaim **double-digit gigabytes** in minutes, your inbox keeps 
 Outlook Mailbox                          Your OneDrive / Downloads
 ┌──────────────────────┐                 ┌──────────────────────────────────────┐
 │ Inbox (50 GB)        │                 │ Downloads/                           │
-│  📧 + 📎 15MB report │──extract──────→│   Work/Email Attachments/2025-03/    │
-│  📧 + 📎 8MB deck   │                 │     2025-03-15_John_Q1_Report.xlsx   │
-│  📧 + 📎 3MB data   │                 │   Analytics & Data/Email Attach.../  │
-│  ...                 │                 │     2025-03-10_Jane_Sales_Data.csv   │
-│                      │  ←─link─────── │                                      │
-│  📧 "Extracted to:   │                 │ Email Attachments/                   │
-│      C:\Users\...\   │                 │   _attachment_index.csv              │
-│      Q1_Report.xlsx" │                 └──────────────────────────────────────┘
-└──────────────────────┘
+│  📧 + 📎 15MB report │──extract──────→│   2025-03-15_John_Q1_Report.xlsx     │
+│  📧 + 📎 8MB deck   │                 │   2025-03-10_Jane_Sales_Data.csv     │
+│  📧 + 📎 3MB data   │                 │   2025-03-08_Bob_Budget.xlsx         │
+│                      │  ←─link─────── │   _attachment_index.csv              │
+│  📧 "Extracted to:   │                 │                                      │
+│      C:\Users\...\   │                 │  (everything in one flat folder -    │
+│      Q1_Report.xlsx" │                 │   no category / date sub-folders)    │
+└──────────────────────┘                 └──────────────────────────────────────┘
 ```
 
 **Key features:**
-- 📂 **Auto-categorizes** files into Work, Analytics & Data, Media, Installers & Tools
+- 📂 **Saves straight to your folder** — no scattered sub-folders; every attachment lands in the one path you choose
+- 🗂️ **Process multiple folders at once** — scan Inbox, Sent Items and any custom folders in a single run
 - 🔗 **Inserts a clickable link** into the email body pointing to the saved file
 - 📋 **Creates an index CSV** mapping every extracted attachment back to its source email
 - 🧹 **Optionally removes** attachments from emails to free server-side mailbox space
 - 🔍 **Dry-run mode** — preview everything before making any changes
+- 🎯 **Accurate pre-run estimate** — the launcher shows how many attachments (and total MB) will *actually* be extracted, honoring the size filter and per-run cap
 - ⏱️ **Batch processing** — processes oldest emails first, with configurable limits
 - 💾 **Remembers your settings** — the interactive launcher saves your choices per user, so you don't reconfigure on every run
 
@@ -127,13 +128,14 @@ changes — that runs against your own Outlook and your own OneDrive:
 ```
 ==================== Outlook Attachment Extractor ====================
  Save path    : C:\Users\you\OneDrive\Downloads
- Email folder : inbox
+ Email folder : inbox, Sent Items
  SharePoint   : https://contoso-my.sharepoint.com/personal/you_contoso_com/Documents
- Filters      : >= 1 MB | older than 90 days | max 100/run
- Estimate     : 142 emails match (older-than filter); up to 100 will be scanned
+ Filters      : >= 1 MB | older than 90 days | max 100/run per folder
+ Estimate     : 37 attachment(s) in 29 email(s), ~540.5 MB will be extracted
+                (>= 1 MB filter; 142 email(s) match the age filter; up to 100 scanned per folder)
 ----------------------------------------------------------------------
  1) Change save path
- 2) Change email folder
+ 2) Change email folder(s)
  3) Change SharePoint web link base ('Open in browser' links)
  4) Change filters (size / age / max)
  5) Preview (dry run - exact attachment list, no changes)
@@ -144,9 +146,12 @@ changes — that runs against your own Outlook and your own OneDrive:
 ======================================================================
 ```
 
-- **Save path** and **email folder** are validated before anything runs (it
-  creates the folder if needed and confirms the folder exists in Outlook).
-- It shows an **estimate of how many emails** match your filters before you commit.
+- **Save path** and **email folder(s)** are validated before anything runs (it
+  creates the folder if needed and confirms the folders exist in Outlook). You
+  can pick **several folders at once** — by number or name, comma-separated.
+- It shows an **accurate estimate** of how many attachments (and total size)
+  will *actually* be extracted — honoring the minimum-size filter and the
+  per-run cap — before you commit.
 - Option **6** lets you **extract a single email as a test** before processing
   everything.
 - **SharePoint web base** is auto-detected from your OneDrive sign-in and powers
@@ -199,9 +204,9 @@ they extract the ZIP, double-click the `.bat`, and it just works.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `-Folder` | `inbox` | Outlook folder: `inbox`, `sent`, `drafts`, `all`, or any custom folder name |
+| `-Folder` | `inbox` | Outlook folder(s) to scan. A single value **or a comma-separated list**: `inbox`, `sent`, `drafts`, `all`, and/or any custom folder name(s), e.g. `"inbox,sent,Projects"`. `all` expands to Inbox + Sent Items; duplicates are removed. |
 | `-MinSizeMB` | `1` | Minimum attachment size in MB to extract |
-| `-MaxItems` | `100` | Max emails to process per run (prevents timeouts) |
+| `-MaxItems` | `100` | Max emails to process per run, **per folder** (prevents timeouts) |
 | `-OlderThanDays` | `90` | Only process emails older than N days. Use `0` to process all emails regardless of age (including today's). |
 | `-DryRun` | `$true` | Preview mode — no files saved, no emails modified |
 | `-RemoveAfterExtract` | `$false` | Remove attachment from email after saving to disk (**permanent!**) |
@@ -221,6 +226,9 @@ they extract the ZIP, double-click the `.bat`, and it just works.
 # Extract from Sent Items
 .\Extract-Attachments.ps1 -Folder sent -DryRun $false
 
+# Extract from several folders in one run (comma-separated)
+.\Extract-Attachments.ps1 -Folder "inbox,sent,Projects" -DryRun $false
+
 # Extract to a custom directory
 .\Extract-Attachments.ps1 -DryRun $false -OutputPath "D:\EmailBackups"
 
@@ -233,30 +241,20 @@ they extract the ZIP, double-click the `.bat`, and it just works.
 
 ## Output Structure
 
-Extracted files are organized by category and month:
+Extracted files are saved **directly** into the folder you choose — no category
+or date sub-folders are created:
 
 ```
 {OutputPath}/
-├── Work/
-│   └── Email Attachments/
-│       ├── 2025-01/
-│       │   ├── 2025-01-15_John_Smith_Q4_Report.pptx
-│       │   └── 2025-01-20_Jane_Doe_Project_Plan.docx
-│       └── 2025-02/
-│           └── ...
-├── Analytics & Data/
-│   └── Email Attachments/
-│       └── 2025-01/
-│           └── 2025-01-10_Bob_Sales_Data.xlsx
-├── Media/
-│   └── Email Attachments/
-│       └── ...
-├── Installers & Tools/
-│   └── Email Attachments/
-│       └── ...
-└── Email Attachments/
-    └── _attachment_index.csv          ← master index of all extractions
+├── 2025-01-15_John_Smith_Q4_Report.pptx
+├── 2025-01-20_Jane_Doe_Project_Plan.docx
+├── 2025-01-10_Bob_Sales_Data.xlsx
+├── 2025-02-03_Alice_Product_Demo.mp4
+└── _attachment_index.csv          ← master index of all extractions
 ```
+
+If a file name would collide with one already in the folder, ` (2)`, ` (3)`, …
+is appended, so an extracted attachment is **never** silently overwritten.
 
 ### File Naming
 
@@ -267,7 +265,11 @@ Files are named with date, sender, and original filename for easy identification
 Example: 2025-03-15_John_Smith_Q1_Media_Report.xlsx
 ```
 
-### Category Mapping
+### Category (index metadata only)
+
+Attachments are **no longer sorted into category folders**. The category is
+still recorded as a **column in the index CSV**, so you can sort or filter by
+file type in Excel without scattering folders across your disk:
 
 | Category | File Extensions |
 |---|---|
@@ -280,7 +282,8 @@ Unrecognized extensions default to **Work**.
 
 ### Index CSV
 
-The `_attachment_index.csv` file tracks every extraction:
+The `_attachment_index.csv` file (saved at the root of your chosen output
+folder) tracks every extraction:
 
 | Column | Description |
 |---|---|
@@ -300,9 +303,9 @@ The index is **append-only** — safe to run the script multiple times without d
 ## How It Works
 
 1. **Connects** to Outlook via the COM API (with automatic retry)
-2. **Scans** the target folder for emails older than the specified threshold
+2. **Scans** the target folder(s) for emails older than the specified threshold
 3. **Filters** attachments by minimum size (skips inline images)
-4. **Saves** each qualifying attachment to the categorized folder structure
+4. **Saves** each qualifying attachment directly to your chosen output folder
 5. **Logs** the extraction to the index CSV
 6. **Inserts** a clickable `file:///` link at the top of the email body
 7. *(Optional)* **Removes** the attachment from the email and saves the modified email
@@ -355,6 +358,28 @@ Run monthly to keep your mailbox lean:
 ```
 
 ## Changelog
+
+### v2.0.0
+
+> **Breaking change — flat output.** Extracted files now save **directly** into
+> your chosen output folder. Earlier versions created
+> `Category/Email Attachments/YYYY-MM/` sub-folders; that scattered layout is
+> gone, and `_attachment_index.csv` now lives at the root of the output folder.
+> If you relied on the old structure, new runs will place files flat instead.
+> Name collisions are handled safely (` (2)`, ` (3)`, …) so nothing is
+> overwritten. The file category is still recorded as a **column in the index
+> CSV** (just no longer used to create folders).
+
+- **New: process multiple folders in one run.** `-Folder` now accepts a
+  comma-separated list (e.g. `"inbox,sent,Projects"`); `all` still expands to
+  Inbox + Sent Items, and duplicates are removed automatically. The interactive
+  launcher lets you pick **several folders at once**, by number or name.
+- **Fix: the launcher's pre-run estimate is now accurate.** It previously showed
+  only how many emails matched the folder + age filter, ignoring the minimum
+  attachment size and the per-run maximum — so the number was misleading. It now
+  mirrors an actual run (scanning up to the max per folder and counting only
+  emails that have a qualifying attachment) and reports the **attachment count
+  and total MB that will really be extracted**.
 
 ### v1.3.0
 - **New: the launcher remembers your settings between runs.** `Run-Extractor.ps1`
